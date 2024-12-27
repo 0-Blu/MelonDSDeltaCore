@@ -15,6 +15,7 @@
 
 #if STATIC_LIBRARY
 #import "MelonDSDeltaCore-Swift.h"
+#import "MelonDSTypes.h"
 #else
 #import <MelonDSDeltaCore/MelonDSDeltaCore-Swift.h>
 #endif
@@ -27,11 +28,17 @@
 #include "melonDS/src/AREngine.h"
 
 #include "melonDS/src/frontend/qt_sdl/Config.h"
+#include "melonDS/src/frontend/qt_sdl/LAN_Socket.h"
 
 #include <memory>
 
 #import <notify.h>
 #import <pthread.h>
+
+namespace WifiAP
+{
+extern int ClientStatus;
+}
 
 // Copied from melonDS source (no longer exists in HEAD)
 void ParseTextCode(char* text, int tlen, u32* code, int clen) // or whatever this should be named?
@@ -311,6 +318,8 @@ void ParseTextCode(char* text, int tlen, u32* code, int clen) // or whatever thi
         return;
     }
     
+    int previousClientStatus = WifiAP::ClientStatus;
+    
     uint32_t inputs = self.activatedInputs;
     uint32_t inputsMask = 0xFFF; // 0b000000111111111111;
     
@@ -370,6 +379,20 @@ void ParseTextCode(char* text, int tlen, u32* code, int clen) // or whatever thi
         memcpy(self.videoRenderer.videoBuffer + screenBufferSize, GPU::Framebuffer[GPU::FrontBuffer][1], screenBufferSize);
         
         [self.videoRenderer processFrame];
+    }
+    
+    if (WifiAP::ClientStatus != previousClientStatus)
+    {
+        if (WifiAP::ClientStatus == 0)
+        {
+            // Disconnected
+            [[NSNotificationCenter defaultCenter] postNotificationName:MelonDSDidDisconnectFromWFCNotification object:self];
+        }
+        else if (WifiAP::ClientStatus == 2)
+        {
+            // Connected
+            [[NSNotificationCenter defaultCenter] postNotificationName:MelonDSDidConnectToWFCNotification object:self];
+        }
     }
 }
 
@@ -728,7 +751,7 @@ namespace Platform
         }
         
         MelonDSEmulatorBridge.sharedBridge.stopping = YES;
-        [[NSNotificationCenter defaultCenter] postNotificationName:DLTAEmulatorCore.emulationDidQuitNotification object:nil];
+        [[NSNotificationCenter defaultCenter] postNotificationName:DLTAEmulatorCore.emulationDidQuitNotification object:MelonDSEmulatorBridge.sharedBridge];
     }
 
     int InstanceID()
@@ -1044,21 +1067,32 @@ namespace Platform
     
     bool LAN_Init()
     {
-        return false;
+        if (![[MelonDSEmulatorBridge sharedBridge] isWFCEnabled])
+        {
+            return false;
+        }
+        
+        if (!LAN_Socket::Init())
+        {
+            return false;
+        }
+        
+        return true;
     }
     
     void LAN_DeInit()
     {
+        LAN_Socket::DeInit();
     }
     
     int LAN_SendPacket(u8* data, int len)
     {
-        return 0;
+        return LAN_Socket::SendPacket(data, len);
     }
     
     int LAN_RecvPacket(u8* data)
     {
-        return 0;
+        return LAN_Socket::RecvPacket(data);
     }
 
     void Mic_Prepare()
